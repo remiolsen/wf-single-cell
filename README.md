@@ -1,5 +1,7 @@
 # Workflow single-cell
 
+/!\ This branch contains some ad-hoc modifications for version 0.2.6 to support visium barcodes. Use `--kit_name 3prime` and `--kit_version` based on the Visium slide version (found in the gpr 'slidefile') to `visium-v1`, `-v2`, `-v3`, `-v4` or `-v5`
+
 wf-single-cell is a research pipeline designed to identify the cell barcode
 and UMI sequences present in nanopore sequencing reads generated from single-cell gene expression libraries. 
 
