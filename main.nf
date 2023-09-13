@@ -341,6 +341,21 @@ workflow {
                         case 'v3':
                             long_list = "3M-february-2018.txt.gz"
                             break
+                        case 'visium-v1':
+                            long_list = "visium-v1.txt.gz"
+                            break
+                        case 'visium-v2':
+                            long_list = "visium-v2.txt.gz"
+                            break
+                        case 'visium-v3':
+                            long_list = "visium-v3.txt.gz"
+                            break
+                        case 'visium-v4':
+                            long_list = "visium-v4.txt.gz"
+                            break
+                        case 'visium-v5':
+                            long_list = "visium-v5.txt.gz"
+                            break
                         default:
                             throw new Exception(
                                 "Encountered an unexpected kit version for 3prime kit (v2 or v3): ${kit_version}")
