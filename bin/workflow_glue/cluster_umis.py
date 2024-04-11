@@ -49,18 +49,6 @@ def argparser():
     )
 
     parser.add_argument(
-        "--cell_gene_max_reads",
-        help="Maximum number of reads to consider for a particular \
-        gene + cell barcode combination. \
-        This is required to prevent too many PCR \
-        duplicates from crashing the UMI clustering algorithm. \
-        Can be increased \
-        if sufficient UMI complexity is observed. [20000]",
-        type=int,
-        default=20000
-    )
-
-    parser.add_argument(
         "--feature_assigns",
         help="TSV read gene/transcript assignments file.",
         type=Path
@@ -224,7 +212,14 @@ def process_records(df, args):
 
 def main(args):
     """Run entry point."""
-    df_tags = pd.read_csv(args.read_tags, sep='\t', index_col=0)
+    df_tags = pd.read_csv(args.read_tags, sep='\t', index_col='read_id')
+
+    dups = df_tags[df_tags.index.duplicated(keep='first')]
+    if not dups.empty:
+        raise ValueError(
+            f"One or more input reads are duplicated, please rectify.\n"
+            f"Duplicated reads: {list(set(dups.index))[:20]}")
+
     df_features = pd.read_csv(
         args.feature_assigns, sep='\t', index_col=0)
     # Merge genes and transcripts onto tags.

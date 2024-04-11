@@ -173,7 +173,7 @@ def main(args):
         head_resources=[*LAB_head_resources])
 
     with report.add_section('Read summaries', 'Read summary'):
-        SeqSummary(args.read_stats)
+        SeqSummary(args.read_stats_dir)
 
     survival_df = pd.read_csv(args.survival, sep='\t', index_col=0)
     wf_summ_df = pd.read_csv(args.wf_summary, sep='\t', index_col=0)
@@ -198,7 +198,7 @@ def main(args):
                     row.n_reads, row.total_cells, row.total_genes,
                     row.total_transcripts])
 
-    with report.add_section('Read surivival by stage', 'Attrition'):
+    with report.add_section('Read survival by stage', 'Attrition'):
         p(
             """These plots detail the number of remaining reads at different
             stages of the workflow.""")
@@ -248,6 +248,22 @@ def main(args):
             configurations within each sample, which can help diagnosing
             library preparation issues.
             The majority of reads should be full_length.""")
+
+        p(
+            """The primers used to identify read segments vary slightly
+            between the supported kits. They are:
+            """
+        )
+        p("3prime and multiome kits:")
+        ul(
+            li("Adapter1: Read1"),
+            li("Adapter2: TSO")
+        )
+        p("5prime kit:")
+        ul(
+            li("Adapter1: Read1"),
+            li("Adapter2: Non-Poly(dT) RT primer")
+        )
 
         order = [
             'full_length',
@@ -334,8 +350,9 @@ def argparser():
     parser = wf_parser("report")
 
     parser.add_argument(
+        "--read_stats_dir",
         "--read_stats",
-        help="fastcat read stats file, with multiple samples concatenated")
+        help="fastcat read stats file or folder of files", type=Path)
     parser.add_argument(
         "--images", nargs='+',
         help="Sample directories containing various images to put in report")

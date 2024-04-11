@@ -4,6 +4,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [v1.0.3]
+### Added
+- Publish stringtie transcriptome fasta and GFF files to output dir.
+### Fixed
+- More informative error message upon read duplicate detection.
+### Updated
+- Remove duplicate fastcat call.
+
+## [v1.0.2]
+### Fixed
+- Error interpreting CSV data types during BAM tagging.
+
+## [v1.0.1]
+### Fixed
+- `<img>` tags in the docs.
+
+## [v1.0.0]
+### Updated
+- Docs to the new format.
+
+## [v0.3.0]
+### Fixed
+- `single_cell_sample_sheet` samples with same kit name and version not compatible.
+
+### Changed
+-`exp_cells` to `expected_cells` in single_cell_sample_sheet to be consistent with CLI option.
+
+## [v0.2.9]
+- Make `prepare_report_data` process more memory-efficient 
+
+## [v0.2.8]
+### Fixed
+- Increase the maximum memory available to the adapter_scan process
+- Fix sequence truncation by 1 bp in adapter_scan step
+- Make `summarize_adapter_table` process more memory-efficient
+
+## [v0.2.7]
+### Fixed
+- Mitochondrial expression file not being copied to output directory
+- Incorrect setting of polars maximum threads
+
+### Added
+- Allow `geneName` attribute in GTF annotation file
+
 ## [v0.2.6]
 ### Fixed
 - Alignments generated from 5' 10x kit are now in the correct orientation.

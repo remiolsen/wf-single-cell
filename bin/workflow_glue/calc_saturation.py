@@ -23,13 +23,6 @@ def argparser():
         default="output.png",
     )
 
-    parser.add_argument(
-        "--threads",
-        help="Number of threads to use [4]",
-        type=int,
-        default=4,
-    )
-
     return parser
 
 
@@ -125,7 +118,7 @@ def downsample_dataframe(df, fraction):
             umi_saturation,
         )
     )
-    logger.info(f"Done saturation calcualtion for fraction {fraction}")
+    logger.info(f"Done saturation calculation for fraction {fraction}")
     return record
 
 

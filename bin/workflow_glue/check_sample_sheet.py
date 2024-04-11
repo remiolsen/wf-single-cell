@@ -2,6 +2,7 @@
 import codecs
 import csv
 import os
+import re
 import sys
 
 from .util import get_named_logger, wf_parser  # noqa: ABS101
@@ -42,7 +43,7 @@ def main(args):
     ]
 
     if not os.path.exists(args.sample_sheet) or not os.path.isfile(args.sample_sheet):
-        sys.stdout.write(f"Could not open sample sheet '{args.sample_sheet}'.")
+        sys.stdout.write("Could not open sample sheet file.")
         sys.exit()
 
     try:
@@ -57,9 +58,10 @@ def main(args):
                 else:
                     # check we got the same number of fields
                     if len(row) != n_cols:
-                        raise ValueError(
-                            f"Unexpected number of cells in row number {n_row}."
+                        sys.stdout.write(
+                            f"Unexpected number of cells in row number {n_row}"
                         )
+                        sys.exit()
                 try:
                     barcodes.append(row["barcode"])
                 except KeyError:
@@ -77,6 +79,19 @@ def main(args):
     except Exception as e:
         sys.stdout.write(f"Parsing error: {e}")
         sys.exit()
+
+    # check barcodes are correct format
+    for barcode in barcodes:
+        if not re.match(r'^barcode\d\d+$', barcode):
+            sys.stdout.write("values in 'barcode' column are incorrect format")
+            sys.exit()
+
+    # check barcodes are all the same length
+    first_length = len(barcodes[0])
+    for barcode in barcodes[1:]:
+        if len(barcode) != first_length:
+            sys.stdout.write("values in 'barcode' column are different lengths")
+            sys.exit()
 
     # check barcode and alias values are unique
     if len(barcodes) > len(set(barcodes)):

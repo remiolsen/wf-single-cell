@@ -1,26 +1,16 @@
 #!/usr/bin/env nextflow
 
-// Developer notes
-//
-// This template workflow provides a basic structure to copy in order
-// to create a new workflow. Current recommended pratices are:
-//     i) create a simple command-line interface.
-//    ii) include an abstract workflow scope named "pipeline" to be used
-//        in a module fashion
-//   iii) a second concreate, but anonymous, workflow scope to be used
-//        as an entry point when using this workflow in isolation.
-
 import groovy.json.JsonBuilder
 import nextflow.util.BlankSeparatedList;
 nextflow.enable.dsl = 2
 
-include { fastq_ingress } from './lib/fastqingress'
+include { fastq_ingress } from './lib/ingress'
 include { stranding } from './subworkflows/stranding'
 include { align } from './subworkflows/align'
 include { process_bams } from './subworkflows/process_bams'
 
 
-process summariseCatChunkReads {
+process chunkReads {
     // concatenate fastq and fastq.gz in a dir. 
     // Split into p parts where p is num threads
 
@@ -30,21 +20,17 @@ process summariseCatChunkReads {
         tuple val(meta),
               path(reads)
     output:
-        tuple val("${meta.alias}"),
-              path("${meta.alias}.stats"),
-              emit: stats
-        tuple val("${meta.alias}"),
+        tuple val(meta),
               path("chunks/*"),
               emit: fastq_chunks
     script:
-    // Split the input fastq into chunks for processing by downstream proceses.
+    // Split the input fastq into chunks for processing by downstream processes.
     // If params.adapter_scan_chunk_size is set to 0, partition data into $params.max_threads chunks (with seqkit -p)
     // Else partition into chunks with params.adapter_scan_chunk_size reads (with seqkit -s)
     def seqkit_split_opts = (params.adapter_scan_chunk_size == 0) ? "-p $params.max_threads" : "-s $params.adapter_scan_chunk_size"
 
     """
-    fastcat -s ${meta.alias} -r ${meta.alias}.stats -x ${reads} | \
-        seqkit split2 --threads ${task.cpus} ${seqkit_split_opts} -O chunks -o ${meta.alias} -e .gz
+    seqkit split2 ${reads} --threads ${task.cpus} ${seqkit_split_opts} -O chunks -o ${meta.alias} -e .gz
     """
 }
 
@@ -56,7 +42,9 @@ process getVersions {
     script:
     """
     python -c "import pysam; print(f'pysam,{pysam.__version__}')" >> versions.txt
+    python -c "import parasail; print(f'parasail,{parasail.__version__}')" >> versions.txt
     python -c "import pandas; print(f'pandas,{pandas.__version__}')" >> versions.txt
+    python -c "import rapidfuzz; print(f'rapidfuzz,{rapidfuzz.__version__}')" >> versions.txt
     python -c "import sklearn; print(f'scikit-learn,{sklearn.__version__}')" >> versions.txt
     fastcat --version | sed 's/^/fastcat,/' >> versions.txt
     minimap2 --version | sed 's/^/minimap2,/' >> versions.txt
@@ -84,11 +72,11 @@ process getParams {
 }
 
 process makeReport {
-    label "singlecell"
+    label "wf_common"
     input:
         path 'versions'
         path 'params.csv'
-        path 'read_stats.csv'
+        path 'per_read_stats/stats_?.tsv.gz'
         path 'survival.tsv'
         path 'wf_summary.tsv'
         path umap_dirs
@@ -101,7 +89,7 @@ process makeReport {
         report_name = "wf-single-cell-report.html"
     """
     workflow-glue report \
-        --read_stats read_stats.csv \
+        --read_stats_dir per_read_stats \
         --params params.csv \
         --versions versions \
         --survival survival.tsv \
@@ -122,15 +110,15 @@ process output {
     label "singlecell"
     // // publish inputs to output directory
     publishDir "${params.out_dir}", mode: 'copy', pattern: "*.{bam,bai}",
-        saveAs: { filename -> "${sample_id}/bams/$filename" }
+        saveAs: { filename -> "${meta.alias}/bams/$filename" }
     publishDir "${params.out_dir}", mode: 'copy', pattern: "*umap*.{tsv,png}",
-        saveAs: { filename -> "${sample_id}/umap/$filename" }
+        saveAs: { filename -> "${meta.alias}/umap/$filename" }
     publishDir "${params.out_dir}", mode: 'copy', 
-        pattern: "*{images,counts,processed,kneeplot,saturation,config,tags,whitelist}*",
-        saveAs: { filename -> "${sample_id}/$filename" }
+        pattern: "*{images,counts,gene_expression,transcript_expression,kneeplot,saturation,config,tags,whitelist,transcriptome,annotation}*",
+        saveAs: { filename -> "${meta.alias}/$filename" }
 
     input:
-        tuple val(sample_id),
+        tuple val(meta),
               path(fname)
     output:
         path fname
@@ -153,11 +141,44 @@ process output_report {
     """
 }
 
+process parse_kit_metadata {
+    label "singlecell"
+    input:
+        path 'sample_ids'
+        path sc_sample_sheet
+        path kit_config, stageAs: 'kit_config.csv'
+    output:
+        path "merged.csv"
+    script:
+    if (sc_sample_sheet.name != "OPTIONAL_FILE"){
+        """
+        workflow-glue parse_kit_metadata from_sheet \
+            --user_config ${sc_sample_sheet} \
+            --kit_config kit_config.csv \
+            --sample_ids sample_ids \
+            --output merged.csv
+        """
+    }else{
+        """
+        workflow-glue parse_kit_metadata from_cli \
+            --kit_config kit_config.csv \
+            --kit_name "$params.kit_name" \
+            --kit_version $params.kit_version \
+            --expected_cells $params.expected_cells \
+            --sample_ids $sample_ids \
+            --output merged.csv
+        """
+    }
+
+}
+
 
 process prepare_report_data {
     label "singlecell"
+    cpus 1
+    memory 1.GB
     input:
-        tuple val(sample_id),
+        tuple val(meta),
               path('read_tags'),
               path('config_stats'),
               path('white_list'),
@@ -170,7 +191,7 @@ process prepare_report_data {
             emit: survival
         path 'sample_summary.tsv',
             emit: summary
-        path "${sample_id}_umap",
+        path "${meta.alias}_umap",
             emit: umap_dir
 
     script:
@@ -180,14 +201,16 @@ process prepare_report_data {
         --read_tags read_tags \
         --config_stats config_stats \
         --white_list white_list \
-        --sample_id ${sample_id}
+        --sample_id ${meta.alias} \
+        --summary_out sample_summary.tsv \
+        --survival_out survival_data.tsv
 
-    umd=${sample_id}_umap
+    umd=${meta.alias}_umap
     mkdir \$umd
 
     if [ "$opt_umap" = true ]; then
         echo "Adding umap data to sample directory"
-        # Add data required for umap plottiong into sample directory
+        # Add data required for umap plotting into sample directory
         mv *umap*.tsv \$umd
         mv ${gene_expression} \$umd
         mv ${transcript_expression} \$umd
@@ -202,10 +225,11 @@ process prepare_report_data {
 // workflow module
 workflow pipeline {
     take:
-        reads
+        meta
         ref_genome_dir
         umap_genes
-        meta
+        per_read_stats
+
     main:
         // throw an exception for deprecated conda users
         if (workflow.profile.contains("conda")) {
@@ -214,18 +238,16 @@ workflow pipeline {
                 "please use --profile standard (Docker) " +
                 "or --profile singularity.")
         }
-        ref_genome_fasta = file("${ref_genome_dir}/fasta/genome.fa", checkIfExists: true)
-        ref_genome_idx = file("${ref_genome_fasta}.fai", checkIfExists: true)
-        ref_genes_gtf = file("${ref_genome_dir}/genes/genes.gtf", checkIfExists: true)
+        ref_genome_fasta = file("${params.ref_genome_dir}/fasta/genome.fa", checkIfExists: true)
+        ref_genome_idx = file("${params.ref_genome_dir}/fasta/genome.fa.fai", checkIfExists: true)
+        ref_genes_gtf = file("${params.ref_genome_dir}/genes/genes.gtf", checkIfExists: true)
         software_versions = getVersions()
         workflow_params = getParams()
-        
-        bc_longlist_dir = file("${projectDir}/data", checkIfExists: true)
-        
-        summariseCatChunkReads(reads)
 
-        stranding(
-            summariseCatChunkReads.out.fastq_chunks, meta)
+        bc_longlist_dir = file("${projectDir}/data", checkIfExists: true)
+        chunkReads(meta)
+
+        stranding(chunkReads.out.fastq_chunks)
 
         align(
             stranding.out.stranded_fq,
@@ -235,12 +257,12 @@ workflow pipeline {
 
         process_bams(
             align.out.bam_sort,
-            meta,
             ref_genes_gtf,
             bc_longlist_dir,
             ref_genome_fasta,
             ref_genome_idx)
-        
+
+
         prepare_report_data(
             process_bams.out.final_read_tags
             .join(stranding.out.config_stats)
@@ -249,13 +271,11 @@ workflow pipeline {
             .join(process_bams.out.transcript_expression)
             .join(process_bams.out.mitochondrial_expression)
             .join(process_bams.out.umap_matrices))
-        
+
         makeReport(
             software_versions,
             workflow_params,
-            summariseCatChunkReads.out.stats
-                .map {it -> it[1]}
-                .collectFile(keepHeader:true),
+            per_read_stats.collect(),
             prepare_report_data.out.survival
                 .collectFile(keepHeader:true),
             prepare_report_data.out.summary
@@ -274,12 +294,14 @@ workflow pipeline {
 WorkflowMain.initialise(workflow, params, log)
 workflow {
 
-    if (params.disable_ping == false) {
-        Pinguscript.ping_post(workflow, "start", "none", params.out_dir, params)
-    }
-    
+    Pinguscript.ping_start(nextflow, workflow, params)
     ref_genome_dir = file(params.ref_genome_dir, checkIfExists: true)
-    umap_genes = file(params.umap_plot_genes, checkIfExists: true)
+
+    if (params.umap_plot_genes){
+        umap_genes = file(params.umap_plot_genes, checkIfExists: true)
+    }else{
+        umap_genes = file("${projectDir}/umap_plot_genes.csv", checkIfExists: true)
+    }
 
     if (params.kit_config){
         kit_configs_file = file(params.kit_config, checkIfExists: true)
@@ -289,116 +311,55 @@ workflow {
 
     fastq = file(params.fastq, type: "file")
 
-    reads = fastq_ingress([
+    samples = fastq_ingress([
             "input":params.fastq,
             "sample":params.sample,
-            "sample_sheet":params.sample_sheet])
-            .map {it[0, 1]}
+            "sample_sheet":params.sample_sheet,
+            "stats": true])
 
-    fastqingress_ids = reads.map{it -> it[0]['alias']}
+    per_read_stats = samples.map { 
+        meta, reads, stats ->
+        [meta, file(stats.resolve('*read*.tsv.gz'))[0]
+        ]}.map {meta, stats -> stats}
 
     if (!params.single_cell_sample_sheet) {
-        //build_a single_cell_sample_sheet channel applying the same kit values to each sample
-        kit_string = Channel.value("${params.kit_name},${params.kit_version},${params.expected_cells}")
-        .splitCsv() 
-        sample_kits = fastqingress_ids
-            .combine(kit_string)
-            .map{ it -> 
-                [it[1], it[2], 
-                ["sample_id": it[0], 
-                'kit_name': it[1], 
-                'kit_version:': it[2], 
-                'exp_cells': it[3]]] }
+
+        sc_sample_sheet = file("$projectDir/data/OPTIONAL_FILE")
     } else {
         // Read single_cell_sample_sheet
         sc_sample_sheet = file(params.single_cell_sample_sheet, checkIfExists: true)
-        sample_kits = Channel.fromPath(sc_sample_sheet)
-            .splitCsv(header:true)
-            .map {it -> [it['kit_name'], it['kit_version'], it]}
     }
 
-    kit_configs = Channel.fromPath(kit_configs_file)
+    fastqingress_ids = samples.map{it -> it[0]['alias']}.collectFile(newLine: true)
+    // Get [sample_id, kit_meta]
+    kit_meta = parse_kit_metadata(fastqingress_ids, sc_sample_sheet, kit_configs_file)
         .splitCsv(header:true)
-        .map {it -> [it['kit_name'], it['kit_version'], it]}
+        .map {it -> [it['sample_id'], it]}
+    // Merge the kit metadata onto the sample metadata
+    // Put sample_id as first element for join
+    sample_and_kit_meta = samples.map {meta, reads, stats -> [meta.alias, meta, reads]}
+        .join(kit_meta)
+        .map {sample_id, sample_meta, reads, kit_meta -> [sample_meta + kit_meta, reads]}
 
-    // Do a check for mismatching sample_ids in the data and single cell sample sheet
-    sample_kits.map {it -> it[2]['sample_id']}
-    .join(fastqingress_ids, failOnMismatch:true)
-
-    // Merge the kit info and user-supplied meta data on kit name and version
-    sample_info = kit_configs.join(sample_kits, by: [0, 1])
-        .map {it ->
-            meta = it[2] + it[3] // Join the 2 meta maps  
-            kit_name = meta['kit_name']
-            kit_version = meta['kit_version']
-            // Get the appropriate cell barcode longlist based on the kit_name specified for this sample_id.
-            switch(kit_name){
-                case '3prime':
-                    switch(kit_version){
-                        case 'v2':
-                            long_list = "737K-august-2016.txt.gz"
-                            break
-                        case 'v3':
-                            long_list = "3M-february-2018.txt.gz"
-                            break
-                        case 'visium-v1':
-                            long_list = "visium-v1.txt.gz"
-                            break
-                        case 'visium-v2':
-                            long_list = "visium-v2.txt.gz"
-                            break
-                        case 'visium-v3':
-                            long_list = "visium-v3.txt.gz"
-                            break
-                        case 'visium-v4':
-                            long_list = "visium-v4.txt.gz"
-                            break
-                        case 'visium-v5':
-                            long_list = "visium-v5.txt.gz"
-                            break
-                        default:
-                            throw new Exception(
-                                "Encountered an unexpected kit version for 3prime kit (v2 or v3): ${kit_version}")
-                    }
-                    break;
-                case '5prime':
-                    long_list = "737K-august-2016.txt.gz"
-                    break
-                case 'multiome':
-                    long_list = "737K-arc-v1.txt.gz"
-                    break
-                default:
-                    throw new Exception("Encountered an unexpected kit_name in samples.csv")
-            }
-            meta['bc_long_list'] = long_list
-
-            [it[3]['sample_id'], meta]}
-
-    pipeline(reads, ref_genome_dir, umap_genes, sample_info)
-
-
+    pipeline(sample_and_kit_meta, ref_genome_dir, umap_genes, per_read_stats)
 
     output(pipeline.out.results.flatMap({it ->
-        // Convert [sample_id, file, file, ..] 
-        // to      [[sample_id, file], [sample_id, file], ...]
+        // Convert [meta, file, file, ..] 
+        // to      [[meta, file], [meta, file], ...]
         l = [];
             for (i=1; i<it.size(); i++) {
                 l.add(tuple(it[0], it[i]))
             }
             return l
-        }).concat(pipeline.out.config_stats)
-    )
+        }))
 
     output_report(pipeline.out.report)
 }
 
-if (params.disable_ping == false) {
-    workflow.onComplete {
-        Pinguscript.ping_post(workflow, "end", "none", params.out_dir, params)
-    }
-
-    workflow.onError {
-        Pinguscript.ping_post(workflow, "error", "$workflow.errorMessage", params.out_dir, params)
-    }
+workflow.onComplete {
+    Pinguscript.ping_complete(nextflow, workflow, params)
+}
+workflow.onError {
+    Pinguscript.ping_error(nextflow, workflow, params)
 
 }
