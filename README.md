@@ -2,7 +2,8 @@
 
 Identification of cell- and UMI barcodes from single-cell sequencing.
 
-
+[!IMPORTANT]
+This branch contains some modifications for version 1.0.3 to support visium barcodes. Use --kit_name 3prime and --kit_version based on the Visium slide version (found in the gpr 'slidefile') to visium-v1, -v2, -v3, -v4 or -v5. This is only for barcode and UMI processing and does absolutely NOT consider microscope images. In fact the reporting still calls "spots" as "cells". Use at your own risk.
 
 ## Introduction
 
