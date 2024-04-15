@@ -1,6 +1,7 @@
 kit_name,kit_version,barcode_length,umi_length,bc_long_list
 3prime,v2,16,10,737K-august-2016.txt.gz
 3prime,v3,16,12,3M-february-2018.txt.gz
+3prime,visium-v1,16,12,visium-v1.txt.gz
 3prime,visium-v2,16,12,visium-v2.txt.gz
 3prime,visium-v3,16,12,visium-v3.txt.gz
 3prime,visium-v4,16,12,visium-v4.txt.gz
